@@ -185,6 +185,14 @@ public partial class Physical : Dynamic
 			// Stop collision override if player's not ready
 			if (this is Player plr && !plr.IsReady) { return; }
 			bool setTo = !_canCollide;
+
+#if CREATOR
+			if (Root != null && Root.SessionType == World.SessionTypeEnum.Creator)
+			{
+				setTo = false;
+			}
+#endif
+
 			SetCollisionDisabled(setTo);
 
 			if (setTo)

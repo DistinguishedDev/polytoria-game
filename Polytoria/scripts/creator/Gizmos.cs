@@ -433,15 +433,24 @@ public sealed partial class Gizmos : Node
 
 		PhysicsRayQueryParameters3D query = PhysicsRayQueryParameters3D.Create(rayOrigin, rayNormal);
 		query.CollideWithAreas = true;
-		query.CollideWithBodies = false;
-		query.CollisionMask = (1 << 2) | (1 << 3);
+		query.CollideWithBodies = true;
+		query.CollisionMask = (1 << 0) | (1 << 1) | (1 << 2) | (1 << 3);
 
 		Godot.Collections.Dictionary? intersection = Root.World3D.DirectSpaceState.IntersectRay(query);
 
 		Dynamic? hoveringOn = null;
 		if (intersection.Count > 0)
 		{
-			hoveringOn = Dynamic.GetDynFromCreatorBounds((Node)intersection["collider"]);
+			Node collider = (Node)intersection["collider"];
+			hoveringOn = Dynamic.GetDynFromCreatorBounds(collider);
+			if (hoveringOn == null && collider is CollisionObject3D colObj)
+			{
+				hoveringOn = Physical.GetPhysicalFromBody(colObj);
+				if (hoveringOn == null)
+				{
+					hoveringOn = Physical.GetPhysicalFromCollider(collider);
+				}
+			}
 		}
 
 		if (toolMode == ToolModeEnum.Paint)
@@ -686,9 +695,9 @@ public sealed partial class Gizmos : Node
 		Vector3 rayNormal = rayOrigin + _camera.ProjectRayNormal(mousePos) * 1000;
 
 		PhysicsRayQueryParameters3D query = PhysicsRayQueryParameters3D.Create(rayOrigin, rayNormal);
-		query.CollideWithBodies = false;
+		query.CollideWithBodies = true;
 		query.CollideWithAreas = true;
-		query.CollisionMask = 1 << 3;
+		query.CollisionMask = (1 << 0) | (1 << 1) | (1 << 3);
 
 		Godot.Collections.Array<Rid> excludeArray = [];
 
