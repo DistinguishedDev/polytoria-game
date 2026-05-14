@@ -693,20 +693,22 @@ public partial class Dynamic : Instance
 		if (_boundArea3D == null) return;
 		// Ignore model/physical model and camera
 		if (to && this is not IGroup and not Camera)
-		{
-			if (this is Physical p && p.CanCollide)
+			if (to && this is not IGroup and not Camera && this is not Physical)
 			{
-				_boundArea3D.CollisionLayer = (1 << 3);
+				if (this is Physical p && p.CanCollide)
+				{
+					_boundArea3D.CollisionLayer = (1 << 3);
+				}
+				else
+				{
+					_boundArea3D.CollisionLayer = (1 << 2);
+				}
+				_boundArea3D.CollisionLayer = (1 << 2);
 			}
 			else
 			{
-				_boundArea3D.CollisionLayer = (1 << 2);
+				_boundArea3D.CollisionLayer = 0;
 			}
-		}
-		else
-		{
-			_boundArea3D.CollisionLayer = 0;
-		}
 	}
 
 	internal void PropagateUpdateCreatorBounds()

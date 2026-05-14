@@ -435,6 +435,8 @@ public sealed partial class Gizmos : Node
 		query.CollideWithAreas = true;
 		query.CollideWithBodies = false;
 		query.CollisionMask = (1 << 2) | (1 << 3);
+		query.CollideWithBodies = true;
+		query.CollisionMask = (1 << 0) | (1 << 1) | (1 << 2) | (1 << 3);
 
 		Godot.Collections.Dictionary? intersection = Root.World3D.DirectSpaceState.IntersectRay(query);
 
@@ -442,6 +444,16 @@ public sealed partial class Gizmos : Node
 		if (intersection.Count > 0)
 		{
 			hoveringOn = Dynamic.GetDynFromCreatorBounds((Node)intersection["collider"]);
+			Node collider = (Node)intersection["collider"];
+			hoveringOn = Dynamic.GetDynFromCreatorBounds(collider);
+			if (hoveringOn == null && collider is CollisionObject3D colObj)
+			{
+				hoveringOn = Physical.GetPhysicalFromBody(colObj);
+				if (hoveringOn == null)
+				{
+					hoveringOn = Physical.GetPhysicalFromCollider(collider);
+				}
+			}
 		}
 
 		if (toolMode == ToolModeEnum.Paint)
