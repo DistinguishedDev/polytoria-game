@@ -161,16 +161,16 @@ public sealed partial class Image3D : Dynamic
 	}
 
 	[Editable, ScriptProperty, DefaultValue(false)]
-    public bool DoubleSided
-    {
-        get => _doubleSided;
-        set
-        {
-            _doubleSided = value;
-            _material.CullMode = value ? BaseMaterial3D.CullModeEnum.Disabled : BaseMaterial3D.CullModeEnum.Back;
-            OnPropertyChanged();
-        }
-    }
+	public bool DoubleSided
+	{
+		get => _doubleSided;
+		set
+		{
+			_doubleSided = value;
+			_material.CullMode = value ? BaseMaterial3D.CullModeEnum.Disabled : BaseMaterial3D.CullModeEnum.Back;
+			OnPropertyChanged();
+		}
+	}
 
 	[Editable, ScriptProperty, DefaultValue(TextureFilterEnum.Linear)]
 	public TextureFilterEnum TextureFilter
