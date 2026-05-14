@@ -28,6 +28,7 @@ public sealed partial class Image3D : Dynamic
 	private bool _castShadows;
 	private bool _shaded;
 	private bool _faceCamera;
+	private bool _doubleSided;
 	private TextureFilterEnum _textureFilter;
 
 	[Editable, ScriptProperty]
@@ -155,6 +156,18 @@ public sealed partial class Image3D : Dynamic
 		{
 			_faceCamera = value;
 			_material.BillboardMode = value ? BaseMaterial3D.BillboardModeEnum.Enabled : BaseMaterial3D.BillboardModeEnum.Disabled;
+			OnPropertyChanged();
+		}
+	}
+
+	[Editable, ScriptProperty, DefaultValue(false)]
+	public bool DoubleSided
+	{
+		get => _doubleSided;
+		set
+		{
+			_doubleSided = value;
+			_material.CullMode = value ? BaseMaterial3D.CullModeEnum.Disabled : BaseMaterial3D.CullModeEnum.Back;
 			OnPropertyChanged();
 		}
 	}
