@@ -187,6 +187,7 @@ public partial class Physical : Dynamic
 			bool setTo = !_canCollide;
 
 #if CREATOR
+			// So the creator can still select objects.
 			if (Root != null && Root.SessionType == World.SessionTypeEnum.Creator)
 			{
 				setTo = false;
