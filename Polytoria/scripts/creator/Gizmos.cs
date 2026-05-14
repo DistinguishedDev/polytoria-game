@@ -763,7 +763,7 @@ public sealed partial class Gizmos : Node
 			if (sel is Dynamic dyn)
 			{
 				Transform3D xform = dyn.GetGlobalTransform();
-				center += xform.Origin;
+				center += xform.Origin + (xform.Basis * dyn.PivotPoint);
 				count++;
 			}
 		}

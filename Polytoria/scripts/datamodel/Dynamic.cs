@@ -59,6 +59,19 @@ public partial class Dynamic : Instance
 	private readonly static Dictionary<Node, Dynamic> _creatorProxyToDyn = [];
 #endif
 
+	private Vector3 _pivotPoint = Vector3.Zero;
+
+	[Editable, ScriptProperty, SyncVar]
+	public Vector3 PivotPoint
+	{
+		get => _pivotPoint;
+		set
+		{
+			_pivotPoint = value;
+			OnPropertyChanged();
+		}
+	}
+
 	[Editable, ScriptProperty, NoSync, CloneIgnore, SaveIgnore]
 	public Vector3 Position
 	{
