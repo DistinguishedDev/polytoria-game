@@ -96,28 +96,28 @@ public partial class UIImage : UIField
 	}
 
 	[Editable, ScriptProperty]
-    public Vector2 TextureScale
-    {
-        get => _textureScale;
-        set
+	public Vector2 TextureScale
+	{
+		get => _textureScale;
+		set
 		{
 			_textureScale = value;
 			ApplyTexture();
 			OnPropertyChanged();
 		}
-    }
+	}
 
-    [Editable, ScriptProperty]
-    public Vector2 TextureOffset
-    {
-        get => _textureOffset;
-        set 
+	[Editable, ScriptProperty]
+	public Vector2 TextureOffset
+	{
+		get => _textureOffset;
+		set
 		{
 			_textureOffset = value;
 			ApplyTexture();
 			OnPropertyChanged();
 		}
-    }
+	}
 
 	[Editable, ScriptProperty]
 	public Color Color
