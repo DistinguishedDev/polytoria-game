@@ -929,6 +929,7 @@ public sealed partial class Camera : Dynamic
 		if (targets.Length == 0)
 			return;
 
+		// Calculate bounding box of all selected instances
 		Aabb combinedBounds = new();
 		bool first = true;
 
