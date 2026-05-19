@@ -32,10 +32,11 @@ public partial class UIImage : UIField
     shader_type canvas_item;
     uniform vec2 texture_scale = vec2(1.0, 1.0);
     uniform vec2 texture_offset = vec2(0.0, 0.0);
+    uniform vec4 modulate_color : source_color = vec4(1.0, 1.0, 1.0, 1.0);
 
     void fragment() {
         vec2 uv = (UV * texture_scale) - texture_offset;
-        COLOR = texture(TEXTURE, uv);
+        COLOR = texture(TEXTURE, uv) * modulate_color;
     }
     """;
 
@@ -126,7 +127,7 @@ public partial class UIImage : UIField
 		set
 		{
 			_color = value;
-			NodeControl.SelfModulate = value;
+			ApplyTexture();
 			OnPropertyChanged();
 		}
 	}
@@ -235,6 +236,7 @@ public partial class UIImage : UIField
 		{
 			GDTextureRect.Material = null;
 			GDTextureRect.Texture = _loadedTexture;
+			GDTextureRect.SelfModulate = _color;
 			return;
 		}
 
@@ -248,6 +250,8 @@ public partial class UIImage : UIField
 
 		_shaderMaterial.SetShaderParameter("texture_scale", _textureScale);
 		_shaderMaterial.SetShaderParameter("texture_offset", _textureOffset);
+		_shaderMaterial.SetShaderParameter("modulate_color", _color);
+		GDTextureRect.SelfModulate = new Color(1, 1, 1, 1);
 		GDTextureRect.Texture = _loadedTexture;
 		GDTextureRect.TextureRepeat = CanvasItem.TextureRepeatEnum.Enabled;
 		GDTextureRect.Material = _shaderMaterial;
