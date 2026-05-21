@@ -14,7 +14,7 @@ namespace Polytoria.Creator;
 public sealed partial class Gizmos : Node
 {
 	public const float GizmoCircleSize = 1.1f;
-	public const float GizmoArrowSize = 0.35f;
+	public const float GizmoArrowSize = 0.25f;
 	public const float MaxZ = 1000000f;
 
 	public World Root = null!;
@@ -33,6 +33,8 @@ public sealed partial class Gizmos : Node
 
 	public bool HoveringGizmos { get; set; }
 	public bool IsDraggingDynamic => _isDraggingDyn;
+
+	public bool IsLocalSpace { get; private set; } = false;
 
 	public static Color[] AxisColors { get; private set; } =
 	[
@@ -55,6 +57,8 @@ public sealed partial class Gizmos : Node
 	private readonly Dictionary<Dynamic, Transform3D> _initialRelativeTransforms = [];
 	private Transform3D _pivotStart;
 	private CreatorHistory _history = null!;
+
+	private Basis _accumulatedRotation = Basis.Identity;
 
 	public void Attach(World game)
 	{
@@ -98,7 +102,7 @@ public sealed partial class Gizmos : Node
 		AddChild(Scale, true);
 		AddChild(Resize, true);
 		AddChild(_paintBox = new() { Root = Root, Name = "PaintBox", RootGizmos = this });
-		AddChild(_hoverBox = new() { Root = Root, Name = "HoverBox", RootGizmos = this });
+		AddChild(_hoverBox = new() { Root = Root, Name = "HoverBox", RootGizmos = this, ShowCenterCircle = false });
 	}
 
 	private void OnResizeDragStarted()
@@ -234,7 +238,9 @@ public sealed partial class Gizmos : Node
 
 	private void OnRotateDragStarted()
 	{
-		_pivotStart = GetSelectionPivot();
+		Transform3D centerPivot = Gizmos.GetCenterPivot([.. Selected]);
+		_pivotStart = new Transform3D(Basis.Identity, centerPivot.Origin);
+		_accumulatedRotation = Basis.Identity;
 		_initialRelativeTransforms.Clear();
 
 		// Store each object's transform relative to pivot
@@ -250,9 +256,9 @@ public sealed partial class Gizmos : Node
 
 	private void OnRotateDragged(Basis basis)
 	{
-		basis = SnapBasis(basis, _pivotStart.Basis, CreatorService.Interface.RotateSnapping);
-
-		Transform3D rotatedPivot = new(basis, _pivotStart.Origin);
+		_accumulatedRotation = basis * _accumulatedRotation;
+		Basis snappedAccumulated = SnapBasis(_accumulatedRotation, CreatorService.Interface.RotateSnapping);
+		Transform3D rotatedPivot = new(snappedAccumulated, _pivotStart.Origin);
 
 		foreach ((Dynamic item, Transform3D relative) in _initialRelativeTransforms)
 		{
@@ -266,29 +272,37 @@ public sealed partial class Gizmos : Node
 		_initialRelativeTransforms.Clear();
 	}
 
-	private static Basis SnapBasis(Basis basis, Basis originalBasis, float deg)
+	private static Basis SnapBasis(Basis accumulatedDelta, float deg)
 	{
+		if (deg <= 0f) return accumulatedDelta;
+
 		float snapAngle = Mathf.DegToRad(deg);
 
-		Basis deltaBasis = basis * originalBasis.Inverse();
-
-		Quaternion quat = new(deltaBasis);
+		Quaternion quat = new(accumulatedDelta);
 		Vector3 axis = quat.GetAxis();
 		float angle = quat.GetAngle();
 
+		if (axis.LengthSquared() < 1e-6f) return Basis.Identity;
+
 		float snappedAngle = Mathf.Round(angle / snapAngle) * snapAngle;
 
-		Basis snappedDelta = new(axis, snappedAngle);
-		return snappedDelta * originalBasis;
+		return new Basis(axis, snappedAngle);
 	}
 
 	private void OnMoveDragged(Vector3 vector)
 	{
+		float snap = CreatorService.Interface.MoveSnapping;
+
 		foreach (Dynamic item in Selected)
 		{
 			if (_dragStartOffsets.TryGetValue(item, out Vector3 offset))
 			{
-				item.Position = vector.Snap(CreatorService.Interface.MoveSnapping) + offset;
+				float snappedLength = Mathf.Snapped(vector.Length(), snap);
+				Vector3 snappedMotion = vector.Length() > 0.0001f ? vector.Normalized() * snappedLength : Vector3.Zero;
+
+				item.SetGlobalPosition(offset + snappedMotion);
+				item.UpdateCurrentTransformCache();
+				item.UpdateCreatorBounds();
 			}
 		}
 	}
@@ -339,6 +353,33 @@ public sealed partial class Gizmos : Node
 		_history.CommitAction();
 	}
 
+	private Transform3D GetSelectionPivotWithSpace()
+	{
+		if (Selected.Count == 0) return Transform3D.Identity;
+
+		Transform3D centerPivot = GetCenterPivot([.. Selected]);
+
+		if (IsLocalSpace && Selected.Count == 1)
+		{
+			Basis localBasis = Selected[0].GetGlobalTransform().Basis.Orthonormalized();
+			return new Transform3D(localBasis, centerPivot.Origin);
+		}
+
+		return new Transform3D(Basis.Identity, centerPivot.Origin);
+	}
+
+	private void ToggleGizmoSpace()
+	{
+		IsLocalSpace = !IsLocalSpace;
+		UpdateGizmoSpace();
+	}
+
+	private void UpdateGizmoSpace()
+	{
+		Move.IsLocalSpace = IsLocalSpace;
+		Rotate.IsLocalSpace = IsLocalSpace;
+	}
+
 	public override void _Process(double delta)
 	{
 		bool sv = true;
@@ -380,6 +421,8 @@ public sealed partial class Gizmos : Node
 		Rotate.Targets.Add(dyn);
 		Scale.Targets.Add(dyn);
 		Resize.Targets.Add(dyn);
+
+		UpdateGizmoSpace();
 	}
 
 	public void Deselect(Dynamic dyn)
@@ -400,6 +443,8 @@ public sealed partial class Gizmos : Node
 		Rotate.Targets.Remove(dyn);
 		Scale.Targets.Remove(dyn);
 		Resize.Targets.Remove(dyn);
+
+		UpdateGizmoSpace();
 	}
 
 	public static Instance? GetModelRoot(Instance instance)
@@ -425,6 +470,12 @@ public sealed partial class Gizmos : Node
 	{
 		if (!Root.CreatorContext.IsViewportFocused) { return; }
 		ToolModeEnum toolMode = CreatorService.Interface.ToolMode;
+
+		if (@event.IsActionPressed("gizmo_transform"))
+		{
+			ToggleGizmoSpace();
+			return;
+		}
 
 		Vector2 mousePos = _camera.GetViewport().GetMousePosition();
 
@@ -772,10 +823,10 @@ public sealed partial class Gizmos : Node
 		return new Transform3D(Basis.Identity, center);
 	}
 
-	private Transform3D GetSelectionPivot()
+	public Transform3D GetSelectionPivot()
 	{
 		if (Selected.Count == 0) return Transform3D.Identity;
 
-		return GetCenterPivot([.. Selected]);
+		return GetSelectionPivotWithSpace();
 	}
 }

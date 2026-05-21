@@ -15,6 +15,7 @@ public partial class RotateGizmo : Node, IGizmo
 	private const float GizmoRingHalfWidth = 0.1f;
 	private Vector3 _ivec = new(0f, 0f, -1f);
 	private Vector3 _ivec2 = new(-1f, 0f, 0f);
+	private Vector3? _lastIntersection;
 	private Shader _rotateShader = GD.Load<Shader>("res://resources/shaders/gizmos/rotate.gdshader");
 	private Shader _rotateBorderShader = GD.Load<Shader>("res://resources/shaders/gizmos/rotate_border.gdshader");
 
@@ -40,12 +41,28 @@ public partial class RotateGizmo : Node, IGizmo
 	public event Action? DragEnded;
 	public event Action<Basis>? Dragged;
 
+	private Transform3D _dragPivot;
+	public bool IsLocalSpace { get; set; } = false;
+
 	public enum RotateGizmoAxis
 	{
 		None = -1,
 		RotateX,
 		RotateY,
 		RotateZ
+	}
+
+	private Transform3D GetPivot()
+	{
+		Transform3D center = Gizmos.GetCenterPivot([.. Targets]);
+
+		if (IsLocalSpace && Targets.Count == 1)
+		{
+			Basis localBasis = Targets[0].GetGlobalTransform().Basis.Orthonormalized();
+			return new Transform3D(localBasis, center.Origin);
+		}
+
+		return new Transform3D(Basis.Identity, center.Origin);
 	}
 
 	public override void _EnterTree()
@@ -197,8 +214,10 @@ public partial class RotateGizmo : Node, IGizmo
 			{
 				if (_currentAxis == RotateGizmoAxis.None) return;
 				if (!Visible) return;
+				_dragPivot = GetPivot();
 				_startRayOrigin = rayOrigin;
 				_startRayNormal = rayNormal;
+				_lastIntersection = null;
 				DragStarted?.Invoke();
 				_isMouseDragging = true;
 			}
@@ -234,7 +253,7 @@ public partial class RotateGizmo : Node, IGizmo
 		if (Targets.Count == 0) return;
 		if (!Visible) return;
 
-		Transform3D pform = Gizmos.GetCenterPivot([.. Targets]);
+		Transform3D pform = GetPivot();
 		float gizmoScale = pform.Origin.DistanceTo(GDCamera.GlobalPosition) * 0.12f;
 		Vector3 pScale = new(gizmoScale, gizmoScale, gizmoScale);
 
@@ -272,7 +291,7 @@ public partial class RotateGizmo : Node, IGizmo
 
 	private void UpdateAxis(Vector3 rayOrigin, Vector3 rayNormal, Vector3 cameraNormal)
 	{
-		Transform3D pivot = Gizmos.GetCenterPivot([.. Targets]);
+		Transform3D pivot = GetPivot();
 		_gizmoScale = pivot.Origin.DistanceTo(GDCamera.GlobalPosition) * 0.12f;
 
 		float colD = 1e20f;
@@ -355,9 +374,7 @@ public partial class RotateGizmo : Node, IGizmo
 
 	private void DragTransform(Vector3 rayOrigin, Vector3 rayNormal, Vector3 cameraNormal)
 	{
-		Transform3D pivot = Gizmos.GetCenterPivot([.. Targets]);
-
-		Plane plane = new(cameraNormal, pivot.Origin);
+		Plane plane = new(cameraNormal, _dragPivot.Origin);
 
 		Vector3 localAxis;
 		switch (_currentAxis)
@@ -368,13 +385,16 @@ public partial class RotateGizmo : Node, IGizmo
 			default: return;
 		}
 
-		Vector3 globalAxis = pivot.Basis.Xform(localAxis).Normalized();
+		Vector3 globalAxis = _dragPivot.Basis.Xform(localAxis).Normalized();
 
 		Vector3? intersection = plane.IntersectsRay(rayOrigin, rayNormal);
-		Vector3? click = plane.IntersectsRay(_startRayOrigin!.Value, _startRayNormal!.Value);
+		if (intersection == null) return;
 
-		if (intersection == null || click == null)
+		if (_lastIntersection == null)
+		{
+			_lastIntersection = intersection;
 			return;
+		}
 
 		float angle;
 		float orthogonalThreshold = Mathf.Cos(Mathf.DegToRad(87));
@@ -383,16 +403,19 @@ public partial class RotateGizmo : Node, IGizmo
 		if (axisIsOrthogonal)
 		{
 			Vector3 projectionAxis = plane.Normal.Cross(globalAxis);
-			Vector3 delta = intersection.Value - click.Value;
+			Vector3 delta = intersection.Value - _lastIntersection.Value;
 			float projection = delta.Dot(projectionAxis);
 			angle = projection * (Mathf.Pi / 2.0f) / (_gizmoScale * Gizmos.GizmoCircleSize);
 		}
 		else
 		{
-			Vector3 clickAxis = (click.Value - pivot.Origin).Normalized();
-			Vector3 currentAxis = (intersection.Value - pivot.Origin).Normalized();
+			Vector3 clickAxis = (_lastIntersection.Value - _dragPivot.Origin).Normalized();
+			Vector3 currentAxis = (intersection.Value - _dragPivot.Origin).Normalized();
 			angle = clickAxis.SignedAngleTo(currentAxis, globalAxis);
 		}
+
+		_dragPivot.Origin = Gizmos.GetCenterPivot([.. Targets]).Origin;
+		_lastIntersection = intersection;
 
 		Basis rotation = new(globalAxis, angle);
 
