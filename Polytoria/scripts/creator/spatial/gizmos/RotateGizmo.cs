@@ -26,6 +26,13 @@ public partial class RotateGizmo : Node, IGizmo
 	private ArrayMesh[] _rotateGizmo = new ArrayMesh[4];
 	private MeshInstance3D[] _rotateGizmoInstance = new MeshInstance3D[4];
 
+	private MeshInstance3D _arcInstance = new();
+	private ImmediateMesh _arcMesh = new();
+	private ShaderMaterial _arcMaterial = new();
+
+	private Vector3 _arcStartDirection;
+	private float _totalRotationAngle;
+
 	private Camera3D GDCamera => RootGizmos!.Root.Environment.CurrentGDCamera!;
 	private RotateGizmoAxis _currentAxis = RotateGizmoAxis.None;
 
@@ -168,6 +175,30 @@ public partial class RotateGizmo : Node, IGizmo
 		}
 	}
 
+	private void CreateArcOverlay()
+	{
+		StandardMaterial3D mat = new()
+		{
+			Transparency = BaseMaterial3D.TransparencyEnum.Alpha,
+			CullMode = BaseMaterial3D.CullModeEnum.Disabled,
+			ShadingMode = BaseMaterial3D.ShadingModeEnum.Unshaded,
+			NoDepthTest = true,
+			RenderPriority = (int)Godot.Material.RenderPriorityMax,
+			VertexColorUseAsAlbedo = true
+		};
+
+		_arcInstance = new MeshInstance3D
+		{
+			Mesh = _arcMesh,
+			CastShadow = GeometryInstance3D.ShadowCastingSetting.Off,
+			Visible = false,
+			Layers = 1 << 6,
+			MaterialOverride = mat
+		};
+
+		AddChild(_arcInstance);
+	}
+
 	private void CreateInstances()
 	{
 		for (int i = 0; i < 4; i++)
@@ -218,6 +249,15 @@ public partial class RotateGizmo : Node, IGizmo
 				_startRayOrigin = rayOrigin;
 				_startRayNormal = rayNormal;
 				_lastIntersection = null;
+				_totalRotationAngle = 0f;
+
+				Vector3 globalAxis = GetGlobalAxis(_currentAxis, _dragPivot);
+				Plane startPlane = new(globalAxis, _dragPivot.Origin);
+				Vector3? startHit = startPlane.IntersectsRay(rayOrigin, rayNormal);
+				_arcStartDirection = startHit.HasValue
+					? (startHit.Value - _dragPivot.Origin).Normalized()
+					: GetPerpendicularVector(globalAxis);
+
 				DragStarted?.Invoke();
 				_isMouseDragging = true;
 			}
@@ -227,6 +267,8 @@ public partial class RotateGizmo : Node, IGizmo
 				{
 					DragEnded?.Invoke();
 					_isMouseDragging = false;
+					_arcInstance.Visible = false;
+					_arcMesh.ClearSurfaces();
 				}
 			}
 		}
@@ -246,6 +288,84 @@ public partial class RotateGizmo : Node, IGizmo
 			}
 		}
 		base._Input(@event);
+	}
+
+	private static Vector3 GetPerpendicularVector(Vector3 v)
+	{
+		Vector3 aux = Mathf.Abs(v.Dot(Vector3.Up)) < 0.9f ? Vector3.Up : Vector3.Right;
+		return v.Cross(aux).Normalized();
+	}
+
+	private static Vector3 GetGlobalAxis(RotateGizmoAxis axis, Transform3D pivot)
+	{
+		return axis switch
+		{
+			RotateGizmoAxis.RotateX => pivot.Basis.Xform(Vector3.Right).Normalized(),
+			RotateGizmoAxis.RotateY => pivot.Basis.Xform(Vector3.Up).Normalized(),
+			RotateGizmoAxis.RotateZ => pivot.Basis.Xform(Vector3.Back).Normalized(),
+			_ => Vector3.Up
+		};
+	}
+
+	private void RedrawArc()
+	{
+		if (_currentAxis == RotateGizmoAxis.None) return;
+
+		_arcMesh.ClearSurfaces();
+
+		Transform3D pivot = GetPivot();
+		float scale = pivot.Origin.DistanceTo(GDCamera.GlobalPosition) * 0.12f;
+		float radius = scale * Gizmos.GizmoCircleSize;
+
+		Vector3 globalAxis = GetGlobalAxis(_currentAxis, _dragPivot);
+
+		int axisIndex = (int)_currentAxis;
+		Color axisColor = Gizmos.AxisColors[axisIndex];
+		Color fillColor = new(axisColor.R, axisColor.G, axisColor.B, 0.25f);
+		Color edgeColor = new(axisColor.R, axisColor.G, axisColor.B, 0.6f);
+
+		int segments = Mathf.Max(2, (int)(Mathf.Abs(_totalRotationAngle) / Mathf.Tau * 128) + 2);
+		segments = Mathf.Min(segments, 128);
+
+		float angleStep = _totalRotationAngle / segments;
+
+		_arcMesh.SurfaceBegin(Godot.Mesh.PrimitiveType.Triangles);
+
+		for (int i = 0; i < segments; i++)
+		{
+			float a0 = angleStep * i;
+			float a1 = angleStep * (i + 1);
+
+			Vector3 v0 = pivot.Origin;
+			Vector3 v1 = pivot.Origin + new Basis(globalAxis, a0).Xform(_arcStartDirection) * radius;
+			Vector3 v2 = pivot.Origin + new Basis(globalAxis, a1).Xform(_arcStartDirection) * radius;
+
+			_arcMesh.SurfaceSetColor(fillColor);
+			_arcMesh.SurfaceAddVertex(v0);
+			_arcMesh.SurfaceSetColor(fillColor);
+			_arcMesh.SurfaceAddVertex(v1);
+			_arcMesh.SurfaceSetColor(fillColor);
+			_arcMesh.SurfaceAddVertex(v2);
+		}
+
+		_arcMesh.SurfaceEnd();
+
+		_arcMesh.SurfaceBegin(Godot.Mesh.PrimitiveType.Lines);
+
+		_arcMesh.SurfaceSetColor(edgeColor);
+		_arcMesh.SurfaceAddVertex(pivot.Origin);
+		_arcMesh.SurfaceSetColor(edgeColor);
+		_arcMesh.SurfaceAddVertex(pivot.Origin + _arcStartDirection * radius);
+
+		Vector3 currentDir = new Basis(globalAxis, _totalRotationAngle).Xform(_arcStartDirection);
+		_arcMesh.SurfaceSetColor(edgeColor);
+		_arcMesh.SurfaceAddVertex(pivot.Origin);
+		_arcMesh.SurfaceSetColor(edgeColor);
+		_arcMesh.SurfaceAddVertex(pivot.Origin + currentDir * radius);
+
+		_arcMesh.SurfaceEnd();
+
+		_arcInstance.Visible = true;
 	}
 
 	private void RedrawGizmo()
@@ -285,7 +405,15 @@ public partial class RotateGizmo : Node, IGizmo
 	{
 		for (int i = 0; i < 4; i++)
 		{
-			_rotateGizmoInstance[i].Visible = Visible;
+			if (_isMouseDragging)
+			{
+				int activeAxis = (int)_currentAxis;
+				_rotateGizmoInstance[i].Visible = Visible && (i == activeAxis);
+			}
+			else
+			{
+				_rotateGizmoInstance[i].Visible = Visible;
+			}
 		}
 	}
 
