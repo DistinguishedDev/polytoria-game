@@ -63,6 +63,11 @@ public partial class RotateGizmo : Node, IGizmo
 	{
 		Transform3D center = Gizmos.GetCenterPivot([.. Targets]);
 
+		if (RootGizmos != null && RootGizmos.IsPivotEditing && Targets.Count == 1)
+		{
+			return center;
+		}
+
 		if (IsLocalSpace && Targets.Count == 1)
 		{
 			Basis localBasis = Targets[0].GetGlobalTransform().Basis.Orthonormalized();
@@ -75,6 +80,7 @@ public partial class RotateGizmo : Node, IGizmo
 	public override void _EnterTree()
 	{
 		CreateSurfTool();
+		CreateArcOverlay();
 		CreateInstances();
 	}
 
@@ -217,7 +223,7 @@ public partial class RotateGizmo : Node, IGizmo
 
 	private void ClearInstances()
 	{
-		for (int i = 0; i < 3; i++)
+		for (int i = 0; i < 4; i++)
 		{
 			_rotateGizmoInstance[i].QueueFree();
 		}
@@ -376,6 +382,15 @@ public partial class RotateGizmo : Node, IGizmo
 		Transform3D pform = GetPivot();
 		float gizmoScale = pform.Origin.DistanceTo(GDCamera.GlobalPosition) * 0.12f;
 		Vector3 pScale = new(gizmoScale, gizmoScale, gizmoScale);
+
+		Color[] palette = RootGizmos?.CurrentAxisColors ?? Gizmos.AxisColors;
+		for (int i = 0; i < 3; i++)
+		{
+			Color axisColor = palette[i];
+			Color hoverColor = Color.FromHsv(axisColor.H, 0.25f, 1f);
+			_rotateColor[i].SetShaderParameter("albedo", axisColor);
+			_rotateHoverColor[i].SetShaderParameter("albedo", hoverColor);
+		}
 
 		for (int i = 0; i < 3; i++)
 		{

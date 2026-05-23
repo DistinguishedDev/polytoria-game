@@ -60,6 +60,11 @@ public partial class MoveGizmo : Node, IGizmo
 	{
 		Transform3D center = Gizmos.GetCenterPivot([.. Targets]);
 
+		if (RootGizmos != null && RootGizmos.IsPivotEditing && Targets.Count == 1)
+		{
+			return center;
+		}
+
 		if (IsLocalSpace && Targets.Count == 1)
 		{
 			Basis localBasis = Targets[0].GetGlobalTransform().Basis.Orthonormalized();
@@ -280,6 +285,11 @@ public partial class MoveGizmo : Node, IGizmo
 			int axisIndex = i / 2;
 			bool isNegative = (i % 2) == 1;
 			bool isHovered = (int)_currentAxis == i;
+
+			Color[] palette = RootGizmos?.CurrentAxisColors ?? Gizmos.AxisColors;
+			Color axisColor = palette[axisIndex];
+			_gizmoColor[i].AlbedoColor = axisColor;
+			_gizmoHoverColor[i].AlbedoColor = Color.FromHsv(axisColor.H, 0.25f, 1f);
 
 			Vector3 axisDir = pform.Basis.GetColumn(axisIndex).Normalized();
 			Vector3 lookDir = isNegative ? -axisDir : axisDir;

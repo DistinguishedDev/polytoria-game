@@ -216,6 +216,11 @@ public partial class ScaleGizmo : Node, IGizmo
 
 		for (int i = 0; i < 3; i++)
 		{
+			Color[] palette = RootGizmos?.CurrentAxisColors ?? Gizmos.AxisColors;
+			Color axisColor = palette[i];
+			_gizmoColor[i].AlbedoColor = axisColor;
+			_gizmoHoverColor[i].AlbedoColor = Color.FromHsv(axisColor.H, 0.25f, 1f);
+
 			Transform3D axisTransform = new();
 
 			if (pform.Basis.GetColumn(i).Normalized()

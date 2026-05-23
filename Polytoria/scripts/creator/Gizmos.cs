@@ -35,6 +35,7 @@ public sealed partial class Gizmos : Node
 	public bool IsDraggingDynamic => _isDraggingDyn;
 
 	public bool IsLocalSpace { get; private set; } = false;
+	public bool IsPivotEditing { get; private set; } = false;
 
 	public static Color[] AxisColors { get; private set; } =
 	[
@@ -42,6 +43,15 @@ public sealed partial class Gizmos : Node
 			new(0.53f, 0.84f, 0.01f),
 			new(0.16f, 0.55f, 0.96f),
 	];
+
+	public static Color[] PivotAxisColors { get; private set; } =
+	[
+			new(1.00f, 0.60f, 0.10f),
+			new(1.00f, 0.80f, 0.10f),
+			new(1.00f, 0.45f, 0.10f),
+	];
+
+	public Color[] CurrentAxisColors => IsPivotEditing ? PivotAxisColors : AxisColors;
 
 	public MoveGizmo Move = new();
 	public RotateGizmo Rotate = new();
@@ -59,6 +69,8 @@ public sealed partial class Gizmos : Node
 	private CreatorHistory _history = null!;
 
 	private Basis _accumulatedRotation = Basis.Identity;
+
+	private readonly Dictionary<Dynamic, (Vector3 Position, Vector3 Rotation)> _pivotUndoState = [];
 
 	public void Attach(World game)
 	{
@@ -107,6 +119,8 @@ public sealed partial class Gizmos : Node
 
 	private void OnResizeDragStarted()
 	{
+		if (IsPivotEditing) return;
+
 		_pivotStart = Selected[0].GetGlobalTransform();
 		_history.NewAction("Resize Transform");
 		RecordHistoryUndo();
@@ -114,6 +128,8 @@ public sealed partial class Gizmos : Node
 
 	private void OnResizeDragged(ResizeGizmo.ResizeGizmoAxis currentAxis, Vector3 rawMotion)
 	{
+		if (IsPivotEditing) return;
+
 		float moveSnap = CreatorService.Interface.MoveSnapping;
 		bool isAltPressed = Input.IsActionPressed("gizmo_scale_uniform");
 		bool isShiftPressed = Input.IsKeyPressed(Key.Shift);
@@ -177,11 +193,15 @@ public sealed partial class Gizmos : Node
 
 	private void OnResizeDragEnded()
 	{
+		if (IsPivotEditing) return;
+
 		CommitHistorySelectedTransform();
 	}
 
 	private void OnScaleDragStarted()
 	{
+		if (IsPivotEditing) return;
+
 		_pivotStart = GetSelectionPivot();
 		_initialRelativeTransforms.Clear();
 
@@ -198,6 +218,8 @@ public sealed partial class Gizmos : Node
 
 	private void OnScaleDragged(Vector3 vector)
 	{
+		if (IsPivotEditing) return;
+
 		Vector3 scaleFactors;
 		float snapValue = CreatorService.Interface.MoveSnapping / 10.0f;
 		if (Input.IsActionPressed("gizmo_scale_uniform"))
@@ -232,12 +254,26 @@ public sealed partial class Gizmos : Node
 
 	private void OnScaleDragEnded()
 	{
+		if (IsPivotEditing) return;
+
 		CommitHistorySelectedTransform();
 		_initialRelativeTransforms.Clear();
 	}
 
 	private void OnRotateDragStarted()
 	{
+		if (IsPivotEditing)
+		{
+			_pivotStart = new Transform3D(
+				Basis.FromEuler(MathUtils.Vector3DegToRad(Selected[0].PivotRotation)),
+				Selected[0].PivotPosition
+			);
+			_accumulatedRotation = Basis.Identity;
+
+			RecordPivotUndoState();
+			return;
+		}
+
 		Transform3D centerPivot = Gizmos.GetCenterPivot([.. Selected]);
 		_pivotStart = new Transform3D(Basis.Identity, centerPivot.Origin);
 		_accumulatedRotation = Basis.Identity;
@@ -256,6 +292,20 @@ public sealed partial class Gizmos : Node
 
 	private void OnRotateDragged(Basis basis)
 	{
+		if (IsPivotEditing)
+		{
+			if (Selected.Count != 1) return;
+
+			Dynamic item = Selected[0];
+			_accumulatedRotation = basis * _accumulatedRotation;
+			Basis snapped = SnapBasis(_accumulatedRotation, CreatorService.Interface.RotateSnapping);
+
+			Basis newPivotBasis = snapped * _pivotStart.Basis;
+			Vector3 newRotationDeg = MathUtils.Vector3RadToDeg(newPivotBasis.GetEuler());
+			item.PivotRotation = newRotationDeg;
+			return;
+		}
+
 		_accumulatedRotation = basis * _accumulatedRotation;
 		Basis snappedAccumulated = SnapBasis(_accumulatedRotation, CreatorService.Interface.RotateSnapping);
 		Transform3D rotatedPivot = new(snappedAccumulated, _pivotStart.Origin);
@@ -268,6 +318,12 @@ public sealed partial class Gizmos : Node
 
 	private void OnRotateDragEnded()
 	{
+		if (IsPivotEditing)
+		{
+			CommitPivotHistory();
+			return;
+		}
+
 		CommitHistorySelectedTransform();
 		_initialRelativeTransforms.Clear();
 	}
@@ -293,6 +349,23 @@ public sealed partial class Gizmos : Node
 	{
 		float snap = CreatorService.Interface.MoveSnapping;
 
+		if (IsPivotEditing)
+		{
+			if (Selected.Count != 1) return;
+
+			Dynamic item = Selected[0];
+			if (_dragStartOffsets.TryGetValue(item, out Vector3 startPivotPos))
+			{
+				float snappedLength = Mathf.Snapped(vector.Length(), snap);
+				Vector3 snappedMotion = vector.Length() > 0.0001f
+					? vector.Normalized() * snappedLength
+					: Vector3.Zero;
+
+				item.PivotPosition = startPivotPos + snappedMotion;
+			}
+			return;
+		}
+
 		foreach (Dynamic item in Selected)
 		{
 			if (_dragStartOffsets.TryGetValue(item, out Vector3 offset))
@@ -309,12 +382,28 @@ public sealed partial class Gizmos : Node
 
 	private void OnMoveDragEnded()
 	{
+		if (IsPivotEditing)
+		{
+			CommitPivotHistory();
+			return;
+		}
+
 		CommitHistorySelectedTransform();
 	}
 
 	private void OnMoveDragStarted()
 	{
 		_dragStartOffsets.Clear();
+
+		if (IsPivotEditing)
+		{
+			if (Selected.Count != 1) return;
+
+			Dynamic item = Selected[0];
+			_dragStartOffsets[item] = item.PivotPosition;
+			RecordPivotUndoState();
+			return;
+		}
 
 		foreach (Dynamic item in Selected)
 		{
@@ -353,6 +442,41 @@ public sealed partial class Gizmos : Node
 		_history.CommitAction();
 	}
 
+	private void RecordPivotUndoState()
+	{
+		_pivotUndoState.Clear();
+		_history.NewAction("Edit Pivot");
+
+		foreach (Dynamic item in Selected)
+		{
+			Vector3 pos = item.PivotPosition;
+			Vector3 rot = item.PivotRotation;
+			_pivotUndoState[item] = (pos, rot);
+			_history.AddUndoCallback(new((_) =>
+			{
+				item.PivotPosition = pos;
+				item.PivotRotation = rot;
+			}));
+		}
+	}
+
+	private void CommitPivotHistory()
+	{
+		foreach (Dynamic item in Selected)
+		{
+			Vector3 newPos = item.PivotPosition;
+			Vector3 newRot = item.PivotRotation;
+			_history.AddDoCallback(new((_) =>
+			{
+				item.PivotPosition = newPos;
+				item.PivotRotation = newRot;
+			}));
+
+			item.PropagateUpdateCreatorBounds();
+		}
+		_history.CommitAction();
+	}
+
 	private Transform3D GetSelectionPivotWithSpace()
 	{
 		if (Selected.Count == 0) return Transform3D.Identity;
@@ -374,6 +498,17 @@ public sealed partial class Gizmos : Node
 		UpdateGizmoSpace();
 	}
 
+	private void TogglePivotEditing()
+	{
+		if (Selected.Count != 1)
+		{
+			IsPivotEditing = false;
+			return;
+		}
+
+		IsPivotEditing = !IsPivotEditing;
+	}
+
 	private void UpdateGizmoSpace()
 	{
 		Move.IsLocalSpace = IsLocalSpace;
@@ -385,6 +520,16 @@ public sealed partial class Gizmos : Node
 		bool sv = true;
 
 		if (Selected.Count == 0) sv = false;
+
+		if (IsPivotEditing && sv)
+		{
+			Scale.Visible = false;
+			Resize.Visible = false;
+
+			Move.Visible = CreatorService.Interface.ToolMode == ToolModeEnum.Move;
+			Rotate.Visible = CreatorService.Interface.ToolMode == ToolModeEnum.Rotate;
+			return;
+		}
 
 		Move.Visible = CreatorService.Interface.ToolMode == ToolModeEnum.Move && sv;
 		Rotate.Visible = CreatorService.Interface.ToolMode == ToolModeEnum.Rotate && sv;
@@ -423,6 +568,11 @@ public sealed partial class Gizmos : Node
 		Resize.Targets.Add(dyn);
 
 		UpdateGizmoSpace();
+
+		if (IsPivotEditing && Selected.Count > 1)
+		{
+			IsPivotEditing = false;
+		}
 	}
 
 	public void Deselect(Dynamic dyn)
@@ -445,6 +595,11 @@ public sealed partial class Gizmos : Node
 		Resize.Targets.Remove(dyn);
 
 		UpdateGizmoSpace();
+
+		if (IsPivotEditing && Selected.Count == 0)
+		{
+			IsPivotEditing = false;
+		}
 	}
 
 	public static Instance? GetModelRoot(Instance instance)
@@ -477,22 +632,38 @@ public sealed partial class Gizmos : Node
 			return;
 		}
 
+		if (@event.IsActionPressed("gizmo_pivot_edit"))
+		{
+			TogglePivotEditing();
+			return;
+		}
+
 		Vector2 mousePos = _camera.GetViewport().GetMousePosition();
 
 		Vector3 rayOrigin = _camera.ProjectRayOrigin(mousePos);
 		Vector3 rayNormal = rayOrigin + _camera.ProjectRayNormal(mousePos) * 1000;
 
 		PhysicsRayQueryParameters3D query = PhysicsRayQueryParameters3D.Create(rayOrigin, rayNormal);
-		query.CollideWithAreas = true;
-		query.CollideWithBodies = false;
-		query.CollisionMask = (1 << 2) | (1 << 3);
+		query.CollideWithAreas = false;
+		query.CollideWithBodies = true;
+		query.CollisionMask = 1 << 0;
 
 		Godot.Collections.Dictionary? intersection = Root.World3D.DirectSpaceState.IntersectRay(query);
 
 		Dynamic? hoveringOn = null;
 		if (intersection.Count > 0)
 		{
-			hoveringOn = Dynamic.GetDynFromCreatorBounds((Node)intersection["collider"]);
+			Node collider = (Node)intersection["collider"];
+			Node? current = collider;
+			while (current != null)
+			{
+				if (current is Dynamic foundDyn)
+				{
+					hoveringOn = foundDyn;
+					break;
+				}
+				current = current.GetParent();
+			}
 		}
 
 		if (toolMode == ToolModeEnum.Paint)
@@ -808,19 +979,23 @@ public sealed partial class Gizmos : Node
 	public static Transform3D GetCenterPivot(Instance[] instances)
 	{
 		Vector3 center = Vector3.Zero;
+		Basis rotationBasis = Basis.Identity;
 		int count = 0;
 		foreach (Instance sel in instances)
 		{
 			if (sel is Dynamic dyn)
 			{
-				Transform3D xform = dyn.GetGlobalTransform();
-				center += xform.Origin;
+				center += dyn.PivotPosition;
+				rotationBasis = Basis.FromEuler(MathUtils.Vector3DegToRad(dyn.PivotRotation));
 				count++;
 			}
 		}
+		if (count == 0)
+        	return Transform3D.Identity;
+
 		center /= count;
 
-		return new Transform3D(Basis.Identity, center);
+		return new Transform3D(rotationBasis, center);
 	}
 
 	public Transform3D GetSelectionPivot()

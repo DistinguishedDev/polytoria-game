@@ -59,6 +59,41 @@ public partial class Dynamic : Instance
 	private readonly static Dictionary<Node, Dynamic> _creatorProxyToDyn = [];
 #endif
 
+	private Transform3D _pivotOffset = Transform3D.Identity;
+
+	[Editable, ScriptProperty, NoSync, CloneIgnore, SaveIgnore]
+	public Vector3 PivotPosition
+	{
+		get
+		{
+			return (GetGlobalTransform() * _pivotOffset).Origin;
+		}
+		set
+		{
+			Transform3D global = GetGlobalTransform();
+			Transform3D newPivotGlobal = new Transform3D(global.Basis * _pivotOffset.Basis, value);
+			_pivotOffset = global.AffineInverse() * newPivotGlobal;
+			OnPropertyChanged();
+		}
+	}
+
+	[Editable, ScriptProperty, NoSync, CloneIgnore, SaveIgnore]
+	public Vector3 PivotRotation
+	{
+		get
+		{
+			Basis worldPivotBasis = GetGlobalTransform().Basis * _pivotOffset.Basis;
+			return MathUtils.Vector3RadToDeg(worldPivotBasis.GetEuler());
+		}
+		set
+		{
+			Transform3D global = GetGlobalTransform();
+			Basis newPivotGlobalBasis = Basis.FromEuler(MathUtils.Vector3DegToRad(value));
+			_pivotOffset.Basis = global.Basis.Inverse() * newPivotGlobalBasis;
+			OnPropertyChanged();
+		}
+	}
+
 	[Editable, ScriptProperty, NoSync, CloneIgnore, SaveIgnore]
 	public Vector3 Position
 	{
