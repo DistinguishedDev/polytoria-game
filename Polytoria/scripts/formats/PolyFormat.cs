@@ -109,6 +109,10 @@ public static partial class PolyFormat
 					return JsonSerializer.Deserialize(element.GetRawText(), PolyJSONGenerationContext.Default.Vector2);
 				if (targetType == typeof(Vector3))
 					return JsonSerializer.Deserialize(element.GetRawText(), PolyJSONGenerationContext.Default.Vector3);
+				if (targetType == typeof(Quaternion))
+					return JsonSerializer.Deserialize(element.GetRawText(), PolyJSONGenerationContext.Default.Quaternion);
+				if (targetType == typeof(Variant))
+					return JsonSerializer.Deserialize(element.GetRawText(), PolyJSONGenerationContext.Default.Variant);
 				break;
 		}
 
@@ -980,8 +984,11 @@ public static partial class PolyFormat
 	[JsonSourceGenerationOptions(WriteIndented = true, Converters = [
 		typeof(Vector2JsonConverter),
 		typeof(Vector3JsonConverter),
+		typeof(UnitQuaternionUInt64JsonConverter),
+		typeof(VariantJsonConverter),
 		typeof(ColorJsonConverter),
 		typeof(ColorSeriesJsonConverter),
+		typeof(NumberSeriesJsonConverter),
 		typeof(NumberRangeJsonConverter)
 		], NumberHandling = JsonNumberHandling.AllowNamedFloatingPointLiterals)]
 	[JsonSerializable(typeof(string))]
@@ -1000,9 +1007,12 @@ public static partial class PolyFormat
 
 	[JsonSerializable(typeof(Vector2))]
 	[JsonSerializable(typeof(Vector3))]
+	[JsonSerializable(typeof(Quaternion))]
 	[JsonSerializable(typeof(Color))]
+	[JsonSerializable(typeof(Variant))]
 
 	[JsonSerializable(typeof(ColorSeries))]
+	[JsonSerializable(typeof(NumberSeries))]
 	[JsonSerializable(typeof(NumberRange))]
 	[JsonSerializable(typeof(UIScale))]
 	[JsonSerializable(typeof(ShadowLayer))]
